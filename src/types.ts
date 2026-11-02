@@ -1,0 +1,1 @@
+export type Subtask={id:string;title:string;completed:boolean}; export type Task={id:string;title:string;description:string;dueAt:string;completed:boolean;subtasks:Subtask[];createdAt:string}; export type Filter='all'|'active'|'completed'|'overdue';
