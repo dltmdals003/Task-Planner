@@ -36,3 +36,18 @@ npm run dev
 4. 수정·완료 처리·완료 취소·삭제 확인 절차를 시연합니다.
 5. 전체/진행 중/완료/마감 지남 필터와 새로고침 후 데이터 유지 상태를 확인합니다.
 6. 브라우저 반응형 모드에서 모바일 한 열 배치를 캡처합니다.
+
+## Supabase 로그인과 기기 간 동기화
+
+1. Supabase 프로젝트를 만들고 Authentication → Providers에서 Email을 활성화합니다.
+2. SQL Editor에서 `supabase/schema.sql` 전체를 실행합니다. `tasks`와 `subtasks` 테이블, 사용자별 RLS 정책이 생성됩니다.
+3. 프로젝트 루트의 `.env.example`을 `.env.local`로 복사하고 Supabase Project URL과 Publishable key를 입력합니다. `service_role` 키는 사용하지 않습니다.
+4. `npm.cmd install` 후 `npm.cmd run dev`로 실행합니다. 로그인하면 기존 localStorage 일정이 계정에 없을 때 한 번만 가져올지 묻습니다.
+5. GitHub 저장소 Settings → Secrets and variables → Actions → New repository secret에서 다음 두 값을 등록합니다.
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_PUBLISHABLE_KEY`
+6. `main` push 시 workflow가 두 값을 빌드 환경에 주입해 GitHub Pages에 배포합니다.
+
+GitHub Pages 주소가 `https://사용자.github.io/Task-Planner/`라면 Supabase Authentication → URL Configuration에서 Site URL과 Redirect URLs에 해당 주소를 등록해야 합니다. 이메일 인증 링크는 이 경로로 돌아옵니다.
+
+동기화는 로그인 후 저장 시 즉시 서버에 반영되며, 새로고침과 브라우저 탭 복귀 시 서버 데이터를 다시 불러옵니다. 저장 중과 저장 실패 상태가 화면에 표시됩니다. 서버 설정이 없으면 기존 localStorage 모드로 계속 사용할 수 있습니다.
