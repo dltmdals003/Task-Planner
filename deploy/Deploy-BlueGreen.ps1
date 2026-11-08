@@ -21,8 +21,17 @@ $proxyCreated = $false
 $switched = $false
 
 function Invoke-Docker([string[]]$Arguments, [switch]$AllowFailure) {
-  $output = & docker @Arguments 2>&1
-  $code = $LASTEXITCODE
+  # PowerShell 5.1 can turn native stderr into a terminating error when the
+  # caller uses $ErrorActionPreference = 'Stop'. Capture it only for this
+  # invocation so the exit code remains the source of truth.
+  $callerPreference = $ErrorActionPreference
+  try {
+    $ErrorActionPreference = 'Continue'
+    $output = & docker @Arguments 2>&1
+    $code = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $callerPreference
+  }
   if ($code -ne 0 -and -not $AllowFailure) {
     throw "docker $($Arguments -join ' ') failed with exit code $code`n$($output -join [Environment]::NewLine)"
   }
@@ -69,8 +78,11 @@ function Assert-App([string]$Name, [string]$ExpectedVersion) {
 }
 
 New-Item -ItemType Directory -Path $StateDirectory -Force | Out-Null
-$networkInspect = Invoke-Docker @('network', 'inspect', $Network) -AllowFailure
-if ($networkInspect.Code -ne 0) { Invoke-Docker @('network', 'create', $Network) | Out-Null }
+$networkList = Invoke-Docker @('network', 'ls', '--filter', "name=^$Network`$", '--format', '{{.Name}}')
+$networkNames = @($networkList.Output -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+if ($networkNames -notcontains $Network) {
+  Invoke-Docker @('network', 'create', $Network) | Out-Null
+}
 
 if (Test-Path -LiteralPath $stateFile) { $previousSlot = (Get-Content -LiteralPath $stateFile -Raw).Trim() }
 if ($previousSlot -ne 'blue' -and $previousSlot -ne 'green') {
