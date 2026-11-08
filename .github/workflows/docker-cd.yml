@@ -17,7 +17,6 @@ concurrency:
 env:
   IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/task-planner
   IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
-  CONTAINER_NAME: task-planner
 
 jobs:
   deploy:
@@ -32,6 +31,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      - name: Check out deployed commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          clean: false
+
       - name: Pull verified image
         shell: powershell
         run: |
@@ -39,67 +44,19 @@ jobs:
           docker pull "${env:IMAGE_NAME}:${env:IMAGE_TAG}"
           if ($LASTEXITCODE -ne 0) { throw "docker pull failed with exit code $LASTEXITCODE" }
 
-      - name: Start candidate and check health
+      - name: Blue-green deploy and verify
         shell: powershell
+        env:
+          SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $candidate = "${env:CONTAINER_NAME}-next"
-          $existing = docker ps -aq --filter "name=^$candidate$"
-          if ($LASTEXITCODE -ne 0) { throw "candidate lookup failed with exit code $LASTEXITCODE" }
-          if ($existing) { docker rm -f $candidate | Out-Null; if ($LASTEXITCODE -ne 0) { throw "candidate cleanup failed with exit code $LASTEXITCODE" } }
-          docker run -d --name $candidate -p 8081:80 `
-            -e "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" `
-            -e "VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}" `
-            "${env:IMAGE_NAME}:${env:IMAGE_TAG}" | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "candidate docker run failed with exit code $LASTEXITCODE" }
-          try {
-            $healthy = $false
-            1..30 | ForEach-Object {
-              if (-not $healthy) {
-                try { Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8081/health' -TimeoutSec 2 | Out-Null; $healthy = $true } catch { Start-Sleep -Seconds 1 }
-              }
-            }
-            if (-not $healthy) { throw 'Candidate container did not respond on /health within 30 seconds.' }
-          } catch {
-            docker logs $candidate
-            if ($LASTEXITCODE -ne 0) { Write-Warning "docker logs failed with exit code $LASTEXITCODE" }
-            docker rm -f $candidate | Out-Null
-            if ($LASTEXITCODE -ne 0) { Write-Warning "candidate cleanup failed with exit code $LASTEXITCODE" }
-            throw
-          }
-
-      - name: Replace production container
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $old = docker ps -aq --filter "name=^${env:CONTAINER_NAME}$"
-          if ($LASTEXITCODE -ne 0) { throw "production lookup failed with exit code $LASTEXITCODE" }
-          if ($old) { docker rm -f $old | Out-Null; if ($LASTEXITCODE -ne 0) { throw "old container cleanup failed with exit code $LASTEXITCODE" } }
-          docker run -d --restart unless-stopped --name $env:CONTAINER_NAME -p 8080:80 `
-            -e "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" `
-            -e "VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}" `
-            "${env:IMAGE_NAME}:${env:IMAGE_TAG}" | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "production docker run failed with exit code $LASTEXITCODE" }
-          try {
-            $healthy = $false
-            1..30 | ForEach-Object {
-              if (-not $healthy) {
-                try { Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8080/health' -TimeoutSec 2 | Out-Null; $healthy = $true } catch { Start-Sleep -Seconds 1 }
-              }
-            }
-            if (-not $healthy) { throw 'Production container did not respond on /health within 30 seconds.' }
-          } catch {
-            docker logs $env:CONTAINER_NAME
-            if ($LASTEXITCODE -ne 0) { Write-Warning "docker logs failed with exit code $LASTEXITCODE" }
-            docker rm -f $env:CONTAINER_NAME | Out-Null
-            if ($LASTEXITCODE -ne 0) { Write-Warning "production cleanup failed with exit code $LASTEXITCODE" }
-            throw
-          } finally {
-            $candidate = "${env:CONTAINER_NAME}-next"
-            $candidateExists = docker ps -aq --filter "name=^$candidate$"
-            if ($LASTEXITCODE -ne 0) { Write-Warning "candidate lookup failed during cleanup with exit code $LASTEXITCODE" }
-            if ($candidateExists) { docker rm -f $candidate | Out-Null; if ($LASTEXITCODE -ne 0) { Write-Warning "candidate cleanup failed with exit code $LASTEXITCODE" } }
-          }
+          & "$env:GITHUB_WORKSPACE\deploy\Deploy-BlueGreen.ps1" `
+            -Image "$env:IMAGE_NAME" `
+            -ImageTag "$env:IMAGE_TAG" `
+            -SupabaseUrl "$env:SUPABASE_URL" `
+            -SupabasePublishableKey "$env:SUPABASE_PUBLISHABLE_KEY"
+          if ($LASTEXITCODE -ne 0) { throw "blue-green deployment failed with exit code $LASTEXITCODE" }
 
       - name: Write deployment summary
         if: always()
@@ -110,9 +67,9 @@ jobs:
           - Runner: Windows self-hosted
           - Image: ``$env:IMAGE_NAME``
           - Tag: ``$env:IMAGE_TAG``
+          - Strategy: Blue-green with Nginx graceful reload
+          - Public URL: http://localhost:8080
           - Source CI run: ${{ github.event.workflow_run.html_url }}
-          - Container: ``$env:CONTAINER_NAME`` on port 8080
-          - Health URL: http://127.0.0.1:8080/health
           "@
           $utf8 = New-Object System.Text.UTF8Encoding($false)
           [System.IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, $summary + [Environment]::NewLine, $utf8)
