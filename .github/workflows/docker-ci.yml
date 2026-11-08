@@ -1,0 +1,85 @@
+name: Docker CI
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/task-planner
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        run: |
+          docker build \
+            --tag "$IMAGE_NAME:latest" \
+            --tag "$IMAGE_NAME:${GITHUB_SHA}" \
+            .
+
+      - name: Run container smoke test
+        id: smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_id="$(docker run -d --rm --name task-planner-ci -p 8080:80 \
+            -e VITE_SUPABASE_URL="${{ secrets.VITE_SUPABASE_URL }}" \
+            -e VITE_SUPABASE_PUBLISHABLE_KEY="${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}" \
+            "$IMAGE_NAME:${GITHUB_SHA}")"
+          cleanup() {
+            status=$?
+            if [ "$status" -ne 0 ]; then
+              echo 'Container logs:'
+              docker logs "$container_id" || true
+            fi
+            docker rm -f "$container_id" >/dev/null 2>&1 || true
+            exit "$status"
+          }
+          trap cleanup EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent --show-error http://127.0.0.1:8080/health; then
+              echo 'Docker smoke test passed.'
+              exit 0
+            fi
+            sleep 1
+          done
+          echo 'Container did not respond within 30 seconds.' >&2
+          exit 1
+
+      - name: Log in to Docker Hub
+        if: success()
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push verified image
+        if: success()
+        run: |
+          docker push "$IMAGE_NAME:latest"
+          docker push "$IMAGE_NAME:${GITHUB_SHA}"
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Docker CI"
+            echo "- Image: \`$IMAGE_NAME\`"
+            echo "- Tags: \`latest\`, \`$GITHUB_SHA\`"
+            echo "- Commit: \`$GITHUB_SHA\`"
+            echo "- Smoke test: ${{ steps.smoke.outcome }}"
+            echo "- Docker Hub push: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"

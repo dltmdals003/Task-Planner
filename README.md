@@ -51,3 +51,38 @@ npm run dev
 GitHub Pages 주소가 `https://사용자.github.io/Task-Planner/`라면 Supabase Authentication → URL Configuration에서 Site URL과 Redirect URLs에 해당 주소를 등록해야 합니다. 이메일 인증 링크는 이 경로로 돌아옵니다.
 
 동기화는 로그인 후 저장 시 즉시 서버에 반영되며, 새로고침과 브라우저 탭 복귀 시 서버 데이터를 다시 불러옵니다. 저장 중과 저장 실패 상태가 화면에 표시됩니다. 서버 설정이 없으면 기존 localStorage 모드로 계속 사용할 수 있습니다.
+
+## Docker 실행
+
+이 프로젝트의 실제 실행 구조는 FastAPI가 없는 React + Vite 정적 프론트엔드입니다. Docker는 Node.js 22로 Vite를 빌드한 뒤 Nginx로 정적 파일을 제공합니다.
+
+```powershell
+docker build -t task-planner .
+docker run --rm -p 8080:80 --env-file .env.local task-planner
+```
+
+브라우저 접속 주소:
+
+```text
+http://localhost:8080/
+```
+
+컨테이너 상태 확인 주소:
+
+```text
+http://localhost:8080/health
+```
+
+Supabase 값은 이미지에 포함되지 않습니다. 로컬에서는 `.env.local`을 사용하고, Docker 이미지에는 빌드 시 `VITE_SUPABASE_URL`과 `VITE_SUPABASE_PUBLISHABLE_KEY`가 필요합니다. 현재 Dockerfile은 비밀값을 복사하지 않으며, Vite 앱의 환경변수는 빌드 시점에 주입해야 하므로 실제 Docker 운영 빌드에서는 별도 `--build-arg` 또는 CI Secrets 주입 구성을 추가해야 합니다. `service_role` 키는 사용하지 않습니다.
+
+## Docker Hub와 GitHub Actions CI
+
+1. Docker Hub에서 소문자 이름의 저장소 `task-planner`를 준비합니다.
+2. GitHub 저장소의 `Settings → Secrets and variables → Actions`에서 다음 Repository secrets를 등록합니다.
+   - `DOCKERHUB_USERNAME`: Docker Hub 사용자명
+   - `DOCKERHUB_TOKEN`: Docker Hub Access Token
+3. `main` 브랜치에 push하거나 Actions에서 `Docker CI`를 수동 실행합니다.
+4. workflow가 `npm ci`가 포함된 Docker 빌드, 컨테이너 `/health` 응답 확인을 통과한 뒤에만 Docker Hub에 push합니다.
+5. 업로드 태그는 `latest`와 커밋 SHA입니다.
+
+GitHub Actions의 `Actions → Docker CI`에서 검증 결과, 이미지 이름, 태그, 커밋을 Summary로 확인할 수 있습니다. 이번 단계에는 self-hosted runner와 자동 배포(CD)를 포함하지 않습니다.
