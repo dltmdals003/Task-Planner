@@ -1,0 +1,103 @@
+name: Docker CD
+
+on:
+  workflow_run:
+    workflows:
+      - Docker CI
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: task-planner-production
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/task-planner
+  IMAGE_TAG: ${{ github.event.workflow_run.head_sha }}
+  CONTAINER_NAME: task-planner
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on:
+      - self-hosted
+      - windows
+    steps:
+      - name: Log in to Docker Hub
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          '${{ secrets.DOCKERHUB_TOKEN }}' | docker login --username '${{ secrets.DOCKERHUB_USERNAME }}' --password-stdin
+
+      - name: Pull verified image
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          docker pull "${env:IMAGE_NAME}:${env:IMAGE_TAG}"
+
+      - name: Start candidate and check health
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $candidate = "${env:CONTAINER_NAME}-next"
+          docker rm -f $candidate 2>$null | Out-Null
+          docker run -d --name $candidate -p 8081:80 `
+            -e "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" `
+            -e "VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}" `
+            "${env:IMAGE_NAME}:${env:IMAGE_TAG}" | Out-Null
+          try {
+            $healthy = $false
+            1..30 | ForEach-Object {
+              if (-not $healthy) {
+                try { Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8081/health' -TimeoutSec 2 | Out-Null; $healthy = $true } catch { Start-Sleep -Seconds 1 }
+              }
+            }
+            if (-not $healthy) { throw 'Candidate container did not respond on /health within 30 seconds.' }
+          } catch {
+            docker logs $candidate
+            docker rm -f $candidate 2>$null | Out-Null
+            throw
+          }
+
+      - name: Replace production container
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $old = docker ps -aq --filter "name=^${env:CONTAINER_NAME}$"
+          if ($old) { docker rm -f $old | Out-Null }
+          docker run -d --restart unless-stopped --name $env:CONTAINER_NAME -p 8080:80 `
+            -e "VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}" `
+            -e "VITE_SUPABASE_PUBLISHABLE_KEY=${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}" `
+            "${env:IMAGE_NAME}:${env:IMAGE_TAG}" | Out-Null
+          try {
+            $healthy = $false
+            1..30 | ForEach-Object {
+              if (-not $healthy) {
+                try { Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8080/health' -TimeoutSec 2 | Out-Null; $healthy = $true } catch { Start-Sleep -Seconds 1 }
+              }
+            }
+            if (-not $healthy) { throw 'Production container did not respond on /health within 30 seconds.' }
+          } catch {
+            docker logs $env:CONTAINER_NAME
+            docker rm -f $env:CONTAINER_NAME 2>$null | Out-Null
+            throw
+          } finally {
+            docker rm -f "${env:CONTAINER_NAME}-next" 2>$null | Out-Null
+          }
+
+      - name: Write deployment summary
+        if: always()
+        shell: pwsh
+        run: |
+          @"
+          ## Docker CD
+          - Runner: Windows self-hosted
+          - Image: `${env:IMAGE_NAME}`
+          - Tag: `${env:IMAGE_TAG}`
+          - Source CI run: ${{ github.event.workflow_run.html_url }}
+          - Container: `${env:CONTAINER_NAME}` on port 8080
+          - Health URL: http://127.0.0.1:8080/health
+          "@ >> $env:GITHUB_STEP_SUMMARY

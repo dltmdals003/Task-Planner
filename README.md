@@ -73,7 +73,7 @@ http://localhost:8080/
 http://localhost:8080/health
 ```
 
-Supabase 값은 이미지에 포함되지 않습니다. 로컬에서는 `.env.local`을 사용하고, Docker 이미지에는 빌드 시 `VITE_SUPABASE_URL`과 `VITE_SUPABASE_PUBLISHABLE_KEY`가 필요합니다. 현재 Dockerfile은 비밀값을 복사하지 않으며, Vite 앱의 환경변수는 빌드 시점에 주입해야 하므로 실제 Docker 운영 빌드에서는 별도 `--build-arg` 또는 CI Secrets 주입 구성을 추가해야 합니다. `service_role` 키는 사용하지 않습니다.
+Supabase 값은 이미지에 하드코딩하지 않습니다. 컨테이너 시작 시 `VITE_SUPABASE_URL`과 `VITE_SUPABASE_PUBLISHABLE_KEY`를 환경변수로 전달하면 Nginx entrypoint가 런타임 설정 파일을 생성합니다. `service_role` 키는 사용하지 않습니다.
 
 ## Docker Hub와 GitHub Actions CI
 
@@ -85,4 +85,16 @@ Supabase 값은 이미지에 포함되지 않습니다. 로컬에서는 `.env.lo
 4. workflow가 `npm ci`가 포함된 Docker 빌드, 컨테이너 `/health` 응답 확인을 통과한 뒤에만 Docker Hub에 push합니다.
 5. 업로드 태그는 `latest`와 커밋 SHA입니다.
 
-GitHub Actions의 `Actions → Docker CI`에서 검증 결과, 이미지 이름, 태그, 커밋을 Summary로 확인할 수 있습니다. 이번 단계에는 self-hosted runner와 자동 배포(CD)를 포함하지 않습니다.
+GitHub Actions의 `Actions → Docker CI`에서 검증 결과, 이미지 이름, 태그, 커밋을 Summary로 확인할 수 있습니다.
+
+## Windows self-hosted runner 자동 배포(CD)
+
+`.github/workflows/docker-cd.yml`은 `Docker CI` workflow가 성공한 뒤 같은 커밋 SHA 태그의 이미지를 Windows self-hosted runner에서 자동으로 배포합니다. runner에는 Docker Desktop과 `self-hosted`, `windows` 라벨이 필요합니다.
+
+1. 저장소 `Settings → Actions → Runners → New self-hosted runner`에서 Windows runner를 등록합니다.
+2. runner 머신에 Docker Desktop을 설치하고 Docker 엔진이 실행 중인지 확인합니다.
+3. runner가 `self-hosted`와 `windows` 라벨로 온라인 상태인지 확인합니다.
+4. Repository secrets에 이미 등록한 `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`를 사용합니다.
+5. `Docker CI`가 성공하면 `Docker CD`가 자동 실행되고, 검증된 SHA 이미지로 `task-planner` 컨테이너를 교체합니다.
+
+runner의 서비스 포트는 `8080`이며 상태 확인 주소는 `http://localhost:8080/health`입니다. 배포 실패 시 candidate 또는 production 컨테이너 로그가 Actions 로그에 출력됩니다. self-hosted runner는 개인 컴퓨터나 사설 네트워크에서 실행되므로 외부 공개가 필요하면 방화벽·리버스 프록시·TLS를 별도로 구성해야 합니다.
