@@ -27,14 +27,10 @@ jobs:
       - windows
     steps:
       - name: Log in to Docker Hub
-        shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $env:DOCKERHUB_TOKEN | docker login --username $env:DOCKERHUB_USERNAME --password-stdin
-          if ($LASTEXITCODE -ne 0) { throw "docker login failed with exit code $LASTEXITCODE" }
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Pull verified image
         shell: powershell
