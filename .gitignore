@@ -8,3 +8,5 @@ dist
 .vite
 coverage
 *.tsbuildinfo
+deploy/state/
+artifacts/

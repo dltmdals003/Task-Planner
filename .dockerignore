@@ -10,3 +10,5 @@ upload
 *.tsbuildinfo
 supabase/.temp
 .env.local
+deploy/state
+artifacts
