@@ -43,6 +43,22 @@ function Test-Container([string]$Name) {
   return $result.Code -eq 0 -and $result.Output.Trim() -eq 'true'
 }
 
+function Test-ContainerOnNetwork([string]$Name, [string]$NetworkName) {
+  $result = Invoke-Docker @('inspect', '--format', '{{json .NetworkSettings.Networks}}', $Name)
+  $networks = $result.Output | ConvertFrom-Json
+  return $null -ne $networks -and ($networks.PSObject.Properties.Name -contains $NetworkName)
+}
+
+function Ensure-ContainerOnNetwork([string]$Name, [string]$NetworkName) {
+  if (-not (Test-Container $Name)) { throw "Container $Name is not running." }
+  if (-not (Test-ContainerOnNetwork $Name $NetworkName)) {
+    Invoke-Docker @('network', 'connect', $NetworkName, $Name) | Out-Null
+  }
+  if (-not (Test-ContainerOnNetwork $Name $NetworkName)) {
+    throw "Container $Name is not connected to network $NetworkName."
+  }
+}
+
 function Remove-Container([string]$Name) {
   if (Test-Container $Name) { Invoke-Docker @('rm', '-f', $Name) | Out-Null }
   else { Invoke-Docker @('rm', $Name) -AllowFailure | Out-Null }
@@ -97,16 +113,19 @@ try {
   Remove-Container $candidate
   Invoke-Docker @('run', '-d', '--restart', 'unless-stopped', '--name', $candidate, '--network', $Network,
     '-e', "VITE_SUPABASE_URL=$SupabaseUrl", '-e', "VITE_SUPABASE_PUBLISHABLE_KEY=$SupabasePublishableKey", "$Image`:$ImageTag") | Out-Null
+  Ensure-ContainerOnNetwork $candidate $Network
   Assert-App $candidate $ImageTag
 
   Write-ProxyConfig $candidate
-  Invoke-Docker @('run', '--rm', '--mount', "type=bind,source=$proxyConfig,target=/etc/nginx/conf.d/default.conf,readonly", 'nginx:1.27-alpine', 'nginx', '-t') | Out-Null
+  # The temporary validator must share Docker DNS with the selected app slot.
+  Invoke-Docker @('run', '--rm', '--network', $Network, '--mount', "type=bind,source=$proxyConfig,target=/etc/nginx/conf.d/default.conf,readonly", 'nginx:1.27-alpine', 'nginx', '-t') | Out-Null
   if (-not (Test-Container $ProxyContainer)) {
     Invoke-Docker @('run', '-d', '--restart', 'unless-stopped', '--name', $ProxyContainer, '--network', $Network, '-p', '8080:80',
       '--mount', "type=bind,source=$proxyConfig,target=/etc/nginx/conf.d/default.conf,readonly", 'nginx:1.27-alpine') | Out-Null
     $proxyCreated = $true
     Start-Sleep -Seconds 2
   } else {
+    Ensure-ContainerOnNetwork $ProxyContainer $Network
     Invoke-Docker @('exec', $ProxyContainer, 'nginx', '-t') | Out-Null
     Invoke-Docker @('exec', $ProxyContainer, 'nginx', '-s', 'reload') | Out-Null
   }
@@ -121,9 +140,10 @@ try {
 } catch {
   if ($switched -and $previousSlot) {
     $restore = if ($previousSlot -eq 'blue') { $BlueContainer } else { $GreenContainer }
+    Ensure-ContainerOnNetwork $restore $Network
     Write-ProxyConfig $restore
-    Invoke-Docker @('exec', $ProxyContainer, 'nginx', '-t') -AllowFailure | Out-Null
-    Invoke-Docker @('exec', $ProxyContainer, 'nginx', '-s', 'reload') -AllowFailure | Out-Null
+    Invoke-Docker @('exec', $ProxyContainer, 'nginx', '-t') | Out-Null
+    Invoke-Docker @('exec', $ProxyContainer, 'nginx', '-s', 'reload') | Out-Null
     Set-Content -LiteralPath $stateFile -Value $previousSlot -Encoding ascii
   }
   if ($candidate -and (Test-Container $candidate)) { Remove-Container $candidate }
