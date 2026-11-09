@@ -7,10 +7,8 @@ COPY . .
 RUN npm run typecheck && npm run build
 
 FROM nginx:1.27-alpine
-ARG APP_VERSION_SHA=unknown
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
-RUN printf '{"version":"%s"}\n' "$APP_VERSION_SHA" > /usr/share/nginx/html/version.json
 COPY docker-entrypoint-env.sh /docker-entrypoint.d/40-env.sh
 RUN chmod +x /docker-entrypoint.d/40-env.sh
 EXPOSE 80

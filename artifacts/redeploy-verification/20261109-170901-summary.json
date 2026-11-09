@@ -1,0 +1,22 @@
+﻿{
+    "started":  "2026-11-09T17:09:01.2504943+09:00",
+    "ended":  "2026-11-09T17:12:01.8718324+09:00",
+    "base_url":  "http://localhost:8080",
+    "total_requests":  714,
+    "successful_requests":  714,
+    "failed_requests":  0,
+    "observed_versions":  [
+                              "{\"version\":\"4d8337dd4767fbf6ecf9d0a24066ffab33898194\"}\n"
+                          ],
+    "before_versions":  [
+                            "{\"version\":\"4d8337dd4767fbf6ecf9d0a24066ffab33898194\"}\n"
+                        ],
+    "during_versions":  [
+                            "{\"version\":\"4d8337dd4767fbf6ecf9d0a24066ffab33898194\"}\n"
+                        ],
+    "after_versions":  [
+                           "{\"version\":\"4d8337dd4767fbf6ecf9d0a24066ffab33898194\"}\n"
+                       ],
+    "verification_passed":  true,
+    "note":  "This result is a successful redeploy verification only when the during phase contains the intended transition and no requests failed."
+}
