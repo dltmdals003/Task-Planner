@@ -21,5 +21,18 @@ html body {
 /* 완화된 상태 색상: 여유, 3일 이내, 1일 이내, 4시간 이내 */
 :root{font-family:'Noto Sans KR','Malgun Gothic',sans-serif;color:#30405a;background:#f8f9fc}.card.comfortable{border-top:3px solid #8aa9d6}.card.comfortable .status,.card.comfortable .countdown{color:#587da9}.card.comfortable .status{background:#edf4fb}.card.soon{border-top:3px solid #d8bd72}.card.soon .status,.card.soon .countdown{color:#ad8c3f}.card.soon .status{background:#fff8e8}.card.attention{border-top:3px solid #d99c6b}.card.attention .status,.card.attention .countdown{color:#b9794e}.card.attention .status{background:#fff1e9}.card.urgent{border-top:3px solid #d78383}.card.urgent .status,.card.urgent .countdown{color:#b85e65}.card.urgent .status{background:#fff0f0}.card.is-complete{border-top:3px solid #91b9a5}.card.is-complete .status,.card.is-complete .countdown{color:#5f9279}.card.is-complete .status{background:#eef7f1}.primary,.add-task{background:#6688c4}.filters .selected{color:#6688c4}.progress i,.check.checked{background:#7e9ed1}.check.checked{border-color:#7e9ed1}
 .account{display:flex;align-items:center;gap:10px;color:#7b8799;font-size:11px}.account button{display:flex;align-items:center;gap:5px;border:1px solid #dce4ef;border-radius:8px;background:#fff;color:#6688c4;padding:7px 10px;font-size:12px}.sync-error{color:#b85e65}.auth-modal{max-width:420px}.auth-modal .primary{width:100%;border:0;padding:10px}.auth-switch{background:transparent;color:#6688c4;font-size:12px;margin:auto}.modal-backdrop .modal{box-shadow:0 18px 55px #23365733}@media(max-width:700px){.account{margin-top:12px;justify-content:space-between}.account span{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+/* 청록색 테마: 마감 상태의 의미 색상은 그대로 유지 */
+:root { background: #f2f8f6; }
+.hero { background: #d6eee6; }
+.hero em, .eyebrow { color: #176c60; }
+.hero p { color: #526f66; }
+.hero-icon { color: #69a99a; }
+.logo, .primary, .add-task, .complete:not(.undo) { background: #227c6b; color: #fff; }
+.filters { background: #e1ede7; }
+.filters .selected, .account button, .auth-switch { color: #176c60; }
+.list-head h2 small, .sub-add button { background: #e0f0e9; color: #176c60; }
+.progress i, .check.checked { background: #318674; }
+.check.checked { border-color: #318674; }
+input:focus, textarea:focus { border-color: #318674; box-shadow: 0 0 0 3px #31867420; }
 /* 데스크톱 한눈 보기: 좁은 3열 카드와 낮은 상단 영역 */
 .compact-hero{padding:16px 24px;margin-bottom:16px}.compact-hero h2{font-size:22px;margin:5px 0}.compact-hero p{font-size:12px;line-height:1.4}.compact-hero .hero-icon{width:56px;height:56px}.cards{grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.card{padding:14px}.card h3{font-size:15px}.countdown{font-size:18px;white-space:nowrap;letter-spacing:-1.2px}.sub-add input{min-width:0}.complete{padding:7px}@media(max-width:900px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}} 
