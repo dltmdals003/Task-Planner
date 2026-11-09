@@ -4,7 +4,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+ARG APP_VERSION=development
 RUN npm run typecheck && npm run build
+RUN node -e "require('fs').writeFileSync('dist/version.json', JSON.stringify({version:process.argv[1]}))" "$APP_VERSION"
 
 FROM nginx:1.27-alpine
 COPY nginx.conf /etc/nginx/conf.d/default.conf
