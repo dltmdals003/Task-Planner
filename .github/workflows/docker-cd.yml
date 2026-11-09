@@ -25,6 +25,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
+          # Legacy proxy bind mounts live under deploy/state. Preserve them.
+          clean: false
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
@@ -38,7 +40,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           # Reuse the proxy's existing bind mount across checkout cleanup.
-          $stateDirectory = Join-Path $env:RUNNER_TEMP 'task-planner-deployment-state'
+          $stateDirectory = Join-Path $env:ProgramData 'TaskPlanner\deployment-state'
           $proxyIds = docker ps -aq --filter 'name=^task-planner-proxy$'
           if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect proxy containers.' }
           if ($proxyIds) {
@@ -48,8 +50,33 @@ jobs:
             $mount = @($proxy[0].Mounts | Where-Object { $_.Destination -eq '/etc/nginx/conf.d/default.conf' })
             if ($mount.Count -ne 1 -or $mount[0].Type -ne 'bind') { throw 'Unexpected proxy config mount; deployment stopped.' }
             $configSource = $mount[0].Source
-            if (-not (Test-Path -LiteralPath $configSource)) { throw "Proxy config is not accessible from Windows: $configSource" }
             $stateDirectory = Split-Path -Parent $configSource
+            if (-not (Test-Path -LiteralPath $configSource -PathType Leaf)) {
+              # A deleted bind source can remain readable inside a running container.
+              $savedConfig = docker exec task-planner-proxy cat /etc/nginx/conf.d/default.conf
+              if ($LASTEXITCODE -ne 0) { throw 'Cannot recover proxy config from container; existing proxy left untouched.' }
+              $configText = $savedConfig -join "`n"
+              if ($configText -notmatch 'proxy_pass\s+http://task-planner-(blue|green):80') {
+                throw 'Recovered config has no recognized active slot; existing proxy left untouched.'
+              }
+              $activeSlot = $Matches[1]
+              New-Item -ItemType Directory -Path $stateDirectory -Force | Out-Null
+              [System.IO.File]::WriteAllText($configSource, $configText + "`n", [System.Text.Encoding]::ASCII)
+              Set-Content -LiteralPath (Join-Path $stateDirectory 'active-slot.txt') -Value $activeSlot -Encoding ASCII
+              # Rebind the recreated host file. This one-time recovery briefly restarts the proxy.
+              Write-Warning 'Recovering deleted bind source: proxy will restart once; a short interruption is possible.'
+              docker restart task-planner-proxy
+              if ($LASTEXITCODE -ne 0) { throw 'Proxy restart failed after config recovery.' }
+              $recovered = $false
+              for ($attempt = 0; $attempt -lt 30; $attempt++) {
+                try {
+                  $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8080/health' -TimeoutSec 2
+                  if ($response.StatusCode -eq 200 -and $response.Content -match '^ok') { $recovered = $true; break }
+                } catch { }
+                Start-Sleep -Seconds 1
+              }
+              if (-not $recovered) { throw 'Recovered proxy did not pass /health; deployment stopped.' }
+            }
           }
           & "$env:GITHUB_WORKSPACE\deploy\Deploy-BlueGreen.ps1" `
             -Image $env:IMAGE_NAME -ImageTag $env:IMAGE_TAG `
